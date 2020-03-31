@@ -6,6 +6,8 @@ __all__ = (
     'TagReader',
 )
 
+import sys
+import os
 from threading import Thread
 from time import time
 from logging import getLogger
@@ -17,8 +19,52 @@ from mopidy_pummeluff.registry import REGISTRY
 from mopidy_pummeluff.tags.base import Tag
 from mopidy_pummeluff.sound import play_sound
 
+from evdev import InputDevice, ecodes, list_devices
+from select import select
+
 LOGGER = getLogger(__name__)
 
+# Important: run, as root, the following command
+#   usermod -a -G input
+def get_devices():
+    return [InputDevice(fn) for fn in list_devices()]
+
+class Reader:
+    #reader = None
+
+    def __init__(self):
+        #self.reader = self
+        path = os.path.dirname(os.path.realpath(__file__))
+        self.keys = "X^1234567890XXXXqwertzuiopXXXXasdfghjklXXXXXyxcvbnmXXXXXXXXXXXXXXXXXXXXXXX"
+        #if not os.path.isfile(path + '/deviceName.txt'):
+        #    sys.exit('Please run RegisterDevice.py first')
+        #else:
+        #with open(path + '/deviceName.txt', 'r') as f:
+        #deviceName = f.read()
+        deviceName = 'HXGCoLtd Keyboard'
+        devices = get_devices()
+        LOGGER.info("looking among " + str(list_devices()))
+        for device in devices:
+            if device.name == deviceName:
+                self.dev = device
+                break
+        try:
+            self.dev
+        except:
+            LOGGER.error("no device found: " + str(devices))
+            sys.exit('Could not find the device %s\n. Make sure is connected' % deviceName)
+
+    def readCard(self):
+        stri = ''
+        key = ''
+        while key != 'KEY_ENTER':
+            r, w, x = select([self.dev], [], [])
+            for event in self.dev.read():
+                if event.type == 1 and event.value == 1:
+                    stri += self.keys[event.code]
+                    # print( keys[ event.code ] )
+                    key = ecodes.KEY[event.code]
+        return stri[:-1]
 
 class ReadError(Exception):
     '''
@@ -48,7 +94,9 @@ class TagReader(Thread):
         super().__init__()
         self.core       = core
         self.stop_event = stop_event
-        self.rfid       = RFID()
+        #self.rfid      = RFID()
+        self.rfid       = Reader()
+        LOGGER.info("Initialized tag reader " + str(stop_event))
 
     def run(self):
         '''
@@ -58,12 +106,17 @@ class TagReader(Thread):
         prev_time = time()
         prev_uid  = ''
 
+        LOGGER.info("start loop")
+
         while not self.stop_event.is_set():
-            rfid.wait_for_tag()
+            #rfid.wait_for_tag()
+            LOGGER.info("waiting for new tag")
+            uid = rfid.readCard()
+            LOGGER.info("read " + str(uid))
 
             try:
                 now = time()
-                uid = self.read_uid()
+                #uid = self.read_uid()
 
                 if now - prev_time > 1 or uid != prev_uid:
                     LOGGER.info('Tag %s read', uid)
